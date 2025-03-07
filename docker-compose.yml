@@ -1,12 +1,6 @@
 version: "3.8"
 
 services:
-  db:
-    image: sqlite:latest
-    volumes:
-      - ./db:/data
-    container_name: egg_db
-
   backend:
     build: ./backend
     ports:
@@ -15,8 +9,7 @@ services:
       - DATABASE_URL=sqlite:////data/egg_database.db
     volumes:
       - ./db:/data
-    depends_on:
-      - db
+    container_name: backend
 
   frontend:
     build: ./frontend
@@ -24,6 +17,7 @@ services:
       - "80:80"
     depends_on:
       - backend
+    container_name: frontend
 
   bot:
     build: ./bot
@@ -33,4 +27,5 @@ services:
     volumes:
       - ./db:/data
     depends_on:
-      - db
+      - backend
+    container_name: bot
