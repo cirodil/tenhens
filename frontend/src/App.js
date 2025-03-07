@@ -10,14 +10,14 @@ function App() {
 
   // Загрузка записей
   useEffect(() => {
-    fetch(`http://localhost:8000/records/${userId}`)
+    fetch(`http://176.123.167.178/records/${userId}`)
       .then((response) => response.json())
       .then((data) => setRecords(data.records));
   }, []);
 
   // Добавление записи
   const addRecord = () => {
-    fetch("http://localhost:8000/records/", {
+    fetch("http://176.123.167.178/records/", {
       mode: "no-cors",
       method: "POST",
       headers: {
@@ -37,7 +37,7 @@ function App() {
         setDate("");
         setNotes("");
         // Обновляем список записей
-        fetch(`http://localhost:8000/records/${userId}`, { mode: "no-cors" })
+        fetch(`http://176.123.167.178/records/${userId}`, { mode: "no-cors" })
           .then((response) => response.json())
           .then((data) => setRecords(data.records));
       });
