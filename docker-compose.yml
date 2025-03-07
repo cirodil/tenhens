@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  db:
+    image: sqlite:latest
+    volumes:
+      - ./db:/data
+    container_name: egg_db
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:////data/egg_database.db
+    volumes:
+      - ./db:/data
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  bot:
+    build: ./bot
+    environment:
+      - TOKEN=ваш_токен_бота
+      - DB_NAME=/data/egg_database.db
+    volumes:
+      - ./db:/data
+    depends_on:
+      - db
