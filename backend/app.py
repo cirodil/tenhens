@@ -5,11 +5,11 @@ import sqlite3
 
 app = FastAPI()
 
-origins = ["*"]
+origins = ["http://localhost:80", "http://176.123.167.178"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins=["http://localhost", "http://176.123.167.178"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
