@@ -22,7 +22,7 @@ services:
   bot:
     build: ./bot
     environment:
-      - TOKEN=ваш_токен_бота
+      - TOKEN=8113222704:AAGiMoa3sWiRf0bJZpv3-VSx1wqNcUuj250
       - DB_NAME=/data/egg_database.db
     volumes:
       - ./db:/data
