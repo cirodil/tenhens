@@ -9,7 +9,7 @@ origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins=[http://localhost/"http://176.123.167.178/"],
+    allow_origins=origins=["http://localhost/", "http://176.123.167.178/"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
