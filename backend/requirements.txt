@@ -1,9 +1,9 @@
-matplotlib==3.10.0
-numpy==2.2.2
-openpyxl==3.1.5
-python-dotenv==1.0.1
-python-telegram-bot==21.10
-scipy==1.15.1
+matplotlib
+numpy
+openpyxl
+python-dotenv
+python-telegram-bot
+scipy
 python-jose[cryptography]  # Для работы с JWT
 passlib                     # Для хеширования паролей
-streamlit==1.27.0
+streamlit
