@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  chicken_bot:
+    build: ./chicken_bot
+    env_file: .env
+    volumes:
+      - chicken_data:/app/data
+
+  streamlit:
+    build: ./streamlit
+    env_file: .env
+    ports:
+      - "8501:8501"
+    depends_on:
+      - chicken_bot
+
+  nginx:
+    build: ./nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - streamlit
+
+volumes:
+  chicken_data:

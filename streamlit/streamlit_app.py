@@ -7,7 +7,7 @@ from scipy import stats
 from datetime import datetime, timedelta
 
 # Настройки базы данных
-DB_NAME = "DB_PATH"
+DB_NAME = "../chicken_bot/data/egg_database.db"
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)

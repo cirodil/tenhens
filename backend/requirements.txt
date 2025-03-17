@@ -1,9 +1,0 @@
-matplotlib
-numpy
-openpyxl
-python-dotenv
-python-telegram-bot
-scipy
-python-jose[cryptography]  # Для работы с JWT
-passlib                     # Для хеширования паролей
-streamlit

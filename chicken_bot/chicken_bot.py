@@ -19,7 +19,8 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Токен бота не найден в .env файле!")
-DB_NAME = os.getenv("DB_PATH")
+# DB_NAME = os.getenv("DB_PATH")
+DB_NAME = "data/egg_database.db"
 
 # Инициализация базы данных
 def init_db():
