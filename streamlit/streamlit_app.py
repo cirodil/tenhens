@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 # Настройки базы данных
 DB_NAME = "/app/data/egg_database.db"
+# DB_NAME = "../chicken_bot/data/egg_database.db"
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -183,8 +184,10 @@ def calculate_analytics(user_id, days=7):
     }
 
 init_db()
+st.set_page_config(page_title="Десять курочек | Сервис для учёта яйценоскости" , page_icon="🐔")
 
-st.title("🐔 Учет яйценоскости кур")
+st.title("🐔 Десять курочек")
+st.subheader("Сервис для учёта яйценоскости")
 
 if not st.session_state.get('logged_in'):
     auth_container = st.container()
