@@ -3,4 +3,4 @@ WORKDIR /app
 COPY streamlit_app.py requirements.txt ./
 RUN pip install --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
-CMD ["streamlit", "run", "streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    CMD ["streamlit", "run", "streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableWebsocketCompression=false"]
