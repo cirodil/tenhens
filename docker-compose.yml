@@ -14,6 +14,8 @@ services:
       - "8501:8501"
     depends_on:
       - chicken_bot
+    volumes:
+      - chicken_data:/app/data
 
   nginx:
     build: ./nginx
