@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.11-slim
 WORKDIR /app
 COPY streamlit_app.py requirements.txt ./
 RUN pip install --upgrade pip \
