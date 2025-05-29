@@ -1,26 +1,35 @@
 import os
-from dotenv import load_dotenv
 import sqlite3
-import matplotlib.pyplot as plt
+import threading
+import time
+import asyncio
 from datetime import datetime, timedelta
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
-from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.chart import LineChart, Reference
+from dotenv import load_dotenv
+from telegram import Bot, Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+from apscheduler.schedulers.background import BackgroundScheduler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
 # Настройки
 load_dotenv()
-
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Токен бота не найден в .env файле!")
-# DB_NAME = os.getenv("DB_PATH")
-DB_NAME = "/app/data/egg_database.db"
+# DB_NAME = "/app/data/egg_database.db"  # Для Docker
+DB_NAME = "egg_database.db"  # Для локального использования
 
 # Инициализация базы данных
 def init_db():
@@ -57,7 +66,7 @@ def add_egg_record(user_id, date, count, notes=""):
     c = conn.cursor()
     c.execute("INSERT INTO eggs (user_id, date, count, notes) VALUES (?, ?, ?, ?)",
               (user_id, date, count, notes))
-    record_id = c.lastrowid  # Получаем ID новой записи
+    record_id = c.lastrowid
     conn.commit()
     conn.close()
     return record_id
@@ -91,7 +100,6 @@ def update_record(record_id, count=None, date=None, notes=None):
         params.append(record_id)
         c.execute(query, params)
         conn.commit()
-
     conn.close()
 
 async def edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -211,7 +219,6 @@ def has_today_entry(user_id):
     conn.close()
     return count > 0
 
-
 # Функция для генерации графиков
 def generate_plot(user_id, days=7):
     data = get_stats(user_id, days)
@@ -239,12 +246,12 @@ def generate_plot(user_id, days=7):
 # Команда для графиков
 async def show_graph(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        user_id = update.message.from_user.id  # Получаем ID пользователя
+        user_id = update.message.from_user.id
         days = int(context.args[0]) if context.args else 7
         if days <= 0:
             raise ValueError
 
-        filename = generate_plot(user_id, days)  # Передаем user_id
+        filename = generate_plot(user_id, days)
         if filename:
             await update.message.reply_photo(
                 photo=open(filename, 'rb'),
@@ -259,10 +266,7 @@ async def show_graph(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
-# Новая функция аналитики
-
-
-# Новая команда аналитики
+# Функция аналитики
 def calculate_analytics(user_id, days=7):
     # Получаем данные за два периода для сравнения
     data = get_stats(user_id, days * 2)
@@ -353,8 +357,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ["/add", "/edit", "/delete"],
         ["/stats", "/graph", "/analytics"],
         ["/export", "/myid"],
-        ["/help", "/donate ☕"],
-
+        ["/help", "/reminders", "/donate ☕"],
     ]
 
     commands_text = (
@@ -370,6 +373,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Экспорт данных:\n"
         "▪ /export [дни] — выгрузить данные в Excel\n\n"
         "▪ /help — список всех команд с кратким описанием\n\n"
+        "Управление напоминаниями:\n"
+        "▪ /reminders — управлять напоминаниями 🔔\n\n"
         "Поддержать проект:\n"
         "▪ /donate — оплатить чашку кофе ☕\n\n"
         "Используйте кнопки ниже или введите команду вручную."
@@ -390,12 +395,11 @@ async def add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "12 сегодня Корм поменяли — добавить 12 яиц на сегодня с комментарием"
     )
 
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
         help_text = (
-            "🐔 Бот для учета яйценоскости кур!\n\n"
+            "🐔 Бот для учёта яйценоскости кур!\n\n"
             "Список команд:\n"
             "▪ /add — добавить запись\n"
             "▪ /stats — статистика\n"
@@ -404,9 +408,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "▪ /edit — изменить запись\n"
             "▪ /delete — удалить запись\n"
             "▪ /export — экспорт\n"
-            "▪ /myid — показать ваш Telegram ID\n"  # Новая строка
             "▪ /help — справка\n"
-            "▪ /donate — поддержать проект"
+            "▪ /donate — поддержка проекта\n"
+            "▪ /myid — показать ваш Telegram ID\n"
+            "▪ /reminders — управление напоминаниями\n\n"
+            
+            "Подробности по каждой команде смотрите через '/help <название команды>'"
         )
     else:
         # Подробное описание конкретной команды
@@ -439,7 +446,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif command == "analytics":
             help_text = (
-                "📈 Расширенная аналитика:\n"
+                "📈 Аналитика:\n"
                 "Используйте команду /analytics [дни], чтобы получить аналитику за указанное количество дней.\n\n"
                 "Примеры:\n"
                 "/analytics — аналитика за 7 дней\n"
@@ -468,7 +475,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "/export 5 — получить файл Excel со статистикой за 5 дней\n"
                 "/export 2025-01-23 2025-02-06 — получить файл Excel со статистикой за указанный период\n"
             )
-
+        elif command == "reminders":
+            help_text = (
+                "🔔 Управление напоминаниями:\n"
+                "Используйте команду /reminders для настройки ежедневных напоминаний о внесении данных о яйценоскости.\n\n"
+                "Примеры:\n"
+                "/reminders on — включить напоминания\n"
+                "/reminders off — отключить напоминания\n"
+                "/reminders time ЧЧ:ММ — задать время напоминания (например, /reminders time 19:00)\n"
+                "/reminders — посмотреть текущее состояние напоминаний"
+            )
         else:
             help_text = f"❌ Команда '{command}' не найдена. Используйте /help для списка команд."
 
@@ -511,6 +527,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "12 2023-12-15 — добавить 12 яиц на 15 декабря 2023\n"
             "12 сегодня Корм поменяли — добавить 12 яиц на сегодня с комментарием"
         )
+
 # Выгрузка в Excel
 def export_to_excel(user_id, start_date=None, end_date=None):
     # Получаем данные из базы
@@ -605,7 +622,6 @@ async def export_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if filename:
             await update.message.reply_document(
                 document=open(filename, 'rb'),
-                # caption=f"📊 Данные за период: {start_date or 'последние 7 дней'}"
                 caption="Можете скачать файл с таблицей"
             )
             os.remove(filename)  # Удаляем временный файл
@@ -631,21 +647,170 @@ async def show_my_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     await update.message.reply_text(f"🆔 Ваш Telegram ID: `{user_id}`", parse_mode="Markdown")
 
-if __name__ == "__main__":
+async def send_reminder_async(bot, user_id):
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text="⏰ Напоминание! Сегодня вы еще не вносили данные о яйцах.\n"
+                 "Используйте команду /add или просто отправьте число."
+        )
+    except Exception as e:
+        print(f"Ошибка при отправке напоминания пользователю {user_id}: {str(e)}")
+
+def send_reminder(user_id):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(send_reminder_async(Bot(token=TOKEN), user_id))
+    loop.close()
+
+# -------------
+def check_and_remind():
+    """Синхронная функция для проверки и отправки напоминаний"""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT user_id, reminder_time FROM user_settings WHERE reminders_enabled=1")
+    users = c.fetchall()
+    
+    for user_id, reminder_time in users:
+        try:
+            if has_today_entry(user_id):
+                continue
+                
+            hour, minute = map(int, reminder_time.split(':'))
+            now = datetime.now()
+            
+            if now.hour == hour and now.minute == minute:
+                # Создаем поток для отправки напоминания
+                threading.Thread(target=send_reminder, args=(user_id,)).start()
+        except Exception as e:
+            print(f"Ошибка при проверке напоминания для {user_id}: {str(e)}")
+    
+    conn.close()
+
+def start_scheduler():
+    """Запуск планировщика в фоновом режиме"""
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_and_remind, 'interval', minutes=1)
+    scheduler.start()
+    print("Планировщик напоминаний запущен")
+    
+    # Бесконечный цикл, чтобы поток не завершался
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        scheduler.shutdown()
+
+# Функции для управления напоминаниями
+def get_user_settings(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT reminders_enabled, reminder_time FROM user_settings WHERE user_id=?", (user_id,))
+    settings = c.fetchone()
+    conn.close()
+    return settings or (False, '20:00')
+
+def update_user_settings(user_id, reminders_enabled=None, reminder_time=None):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    if not c.execute("SELECT 1 FROM user_settings WHERE user_id=?", (user_id,)).fetchone():
+        c.execute("INSERT INTO user_settings (user_id) VALUES (?)", (user_id,))
+    
+    updates = []
+    params = []
+    
+    if reminders_enabled is not None:
+        updates.append("reminders_enabled = ?")
+        params.append(reminders_enabled)
+    if reminder_time is not None:
+        updates.append("reminder_time = ?")
+        params.append(reminder_time)
+    
+    if updates:
+        query = f"UPDATE user_settings SET {', '.join(updates)} WHERE user_id = ?"
+        params.append(user_id)
+        c.execute(query, params)
+    
+    conn.commit()
+    conn.close()
+
+async def manage_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    args = context.args
+    current_settings = get_user_settings(user_id)
+
+    if not args:
+        status = "включены" if current_settings[0] else "выключены"
+        await update.message.reply_text(
+            f"🔔 Текущие настройки напоминаний:\n"
+            f"Статус: {status}\n"
+            f"Время: {current_settings[1]}\n\n"
+            "Используйте:\n"
+            "/reminders on - включить\n"
+            "/reminders off - выключить\n"
+            "/reminders time ЧЧ:ММ - установить время"
+        )
+        return
+
+    action = args[0].lower()
+    if action == "on":
+        update_user_settings(user_id, reminders_enabled=True)
+        await update.message.reply_text("🔔 Напоминания включены!")
+    elif action == "off":
+        update_user_settings(user_id, reminders_enabled=False)
+        await update.message.reply_text("🔕 Напоминания выключены!")
+    elif action == "time" and len(args) > 1:
+        try:
+            # Проверка формата времени
+            datetime.strptime(args[1], "%H:%M")
+            update_user_settings(user_id, reminder_time=args[1])
+            await update.message.reply_text(f"⏰ Время напоминания установлено на {args[1]}")
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат времени! Используйте ЧЧ:ММ")
+    else:
+        await update.message.reply_text("❌ Неверная команда!")
+
+# Функция для формирования клавиатуры
+def create_reply_keyboard():
+    keyboard = [
+        ['/add', '/edit', '/delete'],
+        ['/stats', '/graph', '/analytics'],
+        ['/export', '/myid', '/help'],
+        ['/reminders', '/donate ☕']
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# Основная функция
+def main():
+    """Основная функция для запуска бота"""
     init_db()
-    app = Application.builder().token(TOKEN).build()
+    
+    # Запускаем планировщик в фоновом потоке
+    scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
+    scheduler_thread.start()
+    
+    # Создаем экземпляр Application
+    application = Application.builder().token(TOKEN).build()
+    
+    # Добавляем обработчики команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("add", add_entry))
+    application.add_handler(CommandHandler("edit", edit_entry))
+    application.add_handler(CommandHandler("delete", delete_entry))
+    application.add_handler(CommandHandler("stats", show_stats))
+    application.add_handler(CommandHandler("graph", show_graph))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CommandHandler("analytics", show_analytics))
+    application.add_handler(CommandHandler("export", export_data))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("donate", donate))
+    application.add_handler(CommandHandler("myid", show_my_id))
+    application.add_handler(CommandHandler("reminders", manage_reminders))
+    
+    # Запускаем бота в режиме опроса
+    print("Бот запущен. Ожидание сообщений...")
+    application.run_polling()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add_entry))
-    app.add_handler(CommandHandler("edit", edit_entry))
-    app.add_handler(CommandHandler("delete", delete_entry))
-    app.add_handler(CommandHandler("stats", show_stats))
-    app.add_handler(CommandHandler("graph", show_graph))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CommandHandler("analytics", show_analytics))
-    app.add_handler(CommandHandler("export", export_data))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("donate", donate))
-    app.add_handler(CommandHandler("myid", show_my_id))
-
-    app.run_polling()
+if __name__ == "__main__":
+    main()
