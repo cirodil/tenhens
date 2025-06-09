@@ -24,12 +24,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
 # Настройки
+ADMIN_IDS = [int(id_str.strip()) for id_str in os.getenv("ADMIN_IDS", "").split(",") if id_str.strip()]
+
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
+
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Токен бота не найден в .env файле!")
-DB_NAME = "/app/data/egg_database.db"  # Для Docker
-# DB_NAME = "egg_database.db"  # Для локального использования
+# DB_NAME = "/app/data/egg_database.db"  # Для Docker
+DB_NAME = "egg_database.db"  # Для локального использования
 
 # Инициализация базы данных
 def init_db():
@@ -494,6 +499,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.message.from_user.id
         text = update.message.text
+        
+         # Пропускаем административные команды
+        admin_commands = ["📊 Общая статистика", "👥 Список пользователей", "📢 Рассылка"]
+        if text in admin_commands:
+            return
+        
         if text.startswith('/'):
             return
 
@@ -780,6 +791,125 @@ def create_reply_keyboard():
         ['/reminders', '/donate ☕']
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+# ______________________________________________________________________________________________
+# Получение общей статистики
+def get_general_stats():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    c.execute("SELECT COUNT(DISTINCT user_id) FROM eggs")
+    total_users = c.fetchone()[0]
+    
+    c.execute("SELECT COUNT(*), SUM(count) FROM eggs")
+    total_records, total_eggs = c.fetchone()
+    
+    c.execute("SELECT COUNT(DISTINCT user_id) FROM eggs WHERE date >= date('now', '-7 days')")
+    active_users = c.fetchone()[0]
+    
+    conn.close()
+    
+    return {
+        "total_users": total_users or 0,
+        "total_records": total_records or 0,
+        "total_eggs": total_eggs or 0,
+        "active_users": active_users or 0
+    }
+
+# Показать общую статистику
+async def show_general_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.message.from_user.id):
+        return
+    
+    stats = get_general_stats()
+    response = (
+        "📊 Общая статистика:\n\n"
+        f"• Всего пользователей: {stats['total_users']}\n"
+        f"• Всего записей: {stats['total_records']}\n"
+        f"• Всего яиц: {stats['total_eggs']}\n"
+        f"• Активных пользователей (7 дней): {stats['active_users']}"
+    )
+    await update.message.reply_text(response)
+
+# Получить список пользователей
+async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.message.from_user.id):
+        return
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT user_id, COUNT(*) as entries FROM eggs GROUP BY user_id ORDER BY entries DESC")
+    users = c.fetchall()
+    conn.close()
+    
+    if not users:
+        await update.message.reply_text("❌ Нет данных о пользователях")
+        return
+    
+    response = "👥 Список пользователей:\n\n"
+    for idx, (user_id, entries) in enumerate(users, 1):
+        response += f"{idx}. ID: {user_id} - Записей: {entries}\n"
+    
+    await update.message.reply_text(response)
+
+# Рассылка сообщений
+async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not is_admin(user_id):
+        return
+    
+    # Сохраняем текст рассылки в контексте
+    context.user_data['awaiting_broadcast'] = True
+    await update.message.reply_text("Введите сообщение для рассылки:")
+
+# Обработчик рассылки
+async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not is_admin(user_id) or not context.user_data.get('awaiting_broadcast'):
+        return
+    
+    message = update.message.text
+    context.user_data['awaiting_broadcast'] = False
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT user_id FROM eggs")
+    user_ids = [row[0] for row in c.fetchall()]
+    conn.close()
+    
+    success = 0
+    failed = 0
+    
+    for uid in user_ids:
+        try:
+            await context.bot.send_message(
+                chat_id=uid,
+                text=f"📢 Сообщение от администратора:\n\n{message}"
+            )
+            success += 1
+        except Exception:
+            failed += 1
+    
+    await update.message.reply_text(
+        f"✅ Рассылка завершена!\n"
+        f"Успешно: {success}\n"
+        f"Не удалось: {failed}"
+    )
+
+# Панель администратора
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ Доступ запрещен!")
+        return
+    
+    keyboard = [
+        ["📊 Общая статистика", "👥 Список пользователей"],
+        ["📢 Рассылка"]
+    ]
+    await update.message.reply_text(
+        "Панель администратора:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    )
 
 # Основная функция
 def main():
@@ -792,8 +922,27 @@ def main():
     
     # Создаем экземпляр Application
     application = Application.builder().token(TOKEN).build()
-    
-    # Добавляем обработчики команд
+
+    # Добавляем обработчики администратора ВЫШЕ обычных
+    application.add_handler(CommandHandler("admin", admin_panel))
+    application.add_handler(MessageHandler(
+        filters.Text(["📊 Общая статистика"]) & filters.ChatType.PRIVATE, 
+        show_general_stats
+    ))
+    application.add_handler(MessageHandler(
+        filters.Text(["👥 Список пользователей"]) & filters.ChatType.PRIVATE, 
+        list_users
+    ))
+    application.add_handler(MessageHandler(
+        filters.Text(["📢 Рассылка"]) & filters.ChatType.PRIVATE, 
+        broadcast_message
+    ))
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.ChatType.PRIVATE, 
+        handle_broadcast
+    ), group=1)
+
+    # Добавляем обработчики пользовательских команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add", add_entry))
     application.add_handler(CommandHandler("edit", edit_entry))
