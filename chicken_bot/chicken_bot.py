@@ -33,8 +33,8 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Токен бота не найден в .env файле!")
-# DB_NAME = "/app/data/egg_database.db"  # Для Docker
-DB_NAME = "egg_database.db"  # Для локального использования
+DB_NAME = "/app/data/egg_database.db"  # Для Docker
+# DB_NAME = "egg_database.db"  # Для локального использования
 
 # Инициализация базы данных
 def init_db():
@@ -499,7 +499,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.message.from_user.id
         text = update.message.text
-        
+
          # Пропускаем административные команды
         admin_commands = ["📊 Общая статистика", "👥 Список пользователей", "📢 Рассылка"]
         if text in admin_commands:
