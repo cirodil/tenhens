@@ -864,11 +864,11 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Обработчик рассылки
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    if not is_admin(user_id) or not context.user_data.get('awaiting_broadcast'):
+    if not is_admin(user_id) or context.user_data.get('awaiting_broadcast') != True:
         return
     
     message = update.message.text
-    context.user_data['awaiting_broadcast'] = False
+    context.user_data.pop('awaiting_broadcast', None)  # Сразу очищаем флаг
     
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
