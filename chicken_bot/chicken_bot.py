@@ -22,6 +22,8 @@ from telegram.ext import (
 )
 from apscheduler.schedulers.background import BackgroundScheduler
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import ConversationHandler
+
 
 # Настройки
 ADMIN_IDS = [int(id_str.strip()) for id_str in os.getenv("ADMIN_IDS", "").split(",") if id_str.strip()]
@@ -35,6 +37,10 @@ if not TOKEN:
     raise ValueError("Токен бота не найден в .env файле!")
 DB_NAME = "/app/data/egg_database.db"  # Для Docker
 # DB_NAME = "egg_database.db"  # Для локального использования
+
+
+# Константа для состояния рассылки
+BROADCAST_MESSAGE = 1
 
 # Инициализация базы данных
 def init_db():
@@ -496,6 +502,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    # Если ожидается сообщение для рассылки - пропускаем обычную обработку
+    if context.user_data.get('awaiting_broadcast'):
+        return
+    
     try:
         user_id = update.message.from_user.id
         text = update.message.text
@@ -857,9 +868,43 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(user_id):
         return
     
-    # Сохраняем текст рассылки в контексте
-    context.user_data['awaiting_broadcast'] = True
+    # Запрашиваем сообщение для рассылки
     await update.message.reply_text("Введите сообщение для рассылки:")
+    
+    # Устанавливаем состояние ожидания сообщения
+    return BROADCAST_MESSAGE  # Возвращаем состояние
+
+async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message.text
+    
+    # Получаем список пользователей
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT user_id FROM eggs")
+    user_ids = [row[0] for row in c.fetchall()]
+    conn.close()
+    
+    success = 0
+    failed = 0
+    
+    for uid in user_ids:
+        try:
+            await context.bot.send_message(
+                chat_id=uid,
+                text=f"📢 Сообщение от администратора:\n\n{message}"
+            )
+            success += 1
+        except Exception:
+            failed += 1
+    
+    await update.message.reply_text(
+        f"✅ Рассылка завершена!\n"
+        f"Успешно: {success}\n"
+        f"Не удалось: {failed}"
+    )
+    
+    # Сбрасываем состояние
+    return ConversationHandler.END
 
 # Обработчик рассылки
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -911,17 +956,37 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     )
 
+async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop('awaiting_broadcast', None)
+    await update.message.reply_text("❌ Рассылка отменена")
+    return ConversationHandler.END
+
 # Основная функция
 def main():
     """Основная функция для запуска бота"""
     init_db()
-    
-    # Запускаем планировщик в фоновом потоке
     scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
     scheduler_thread.start()
     
-    # Создаем экземпляр Application
     application = Application.builder().token(TOKEN).build()
+
+    # Добавляем ConversationHandler для рассылки
+    conv_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Text(["📢 Рассылка"]) & filters.ChatType.PRIVATE, broadcast_message)
+        ],
+        states={
+            BROADCAST_MESSAGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast_message)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_broadcast)],  # Добавить функцию отмены
+        map_to_parent={
+            ConversationHandler.END: ConversationHandler.END
+        }
+    )
+    
+    application.add_handler(conv_handler)
 
     # Добавляем обработчики администратора ВЫШЕ обычных
     application.add_handler(CommandHandler("admin", admin_panel))
@@ -933,14 +998,6 @@ def main():
         filters.Text(["👥 Список пользователей"]) & filters.ChatType.PRIVATE, 
         list_users
     ))
-    application.add_handler(MessageHandler(
-        filters.Text(["📢 Рассылка"]) & filters.ChatType.PRIVATE, 
-        broadcast_message
-    ))
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.ChatType.PRIVATE, 
-        handle_broadcast
-    ), group=1)
 
     # Добавляем обработчики пользовательских команд
     application.add_handler(CommandHandler("start", start))
@@ -957,6 +1014,8 @@ def main():
     application.add_handler(CommandHandler("myid", show_my_id))
     application.add_handler(CommandHandler("reminders", manage_reminders))
     
+    # Добавить функцию отмены рассылки
+
     # Запускаем бота в режиме опроса
     print("Бот запущен. Ожидание сообщений...")
     application.run_polling()
