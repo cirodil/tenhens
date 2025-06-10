@@ -3,6 +3,7 @@ import sqlite3
 import threading
 import time
 import asyncio
+import re
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,8 +36,8 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Токен бота не найден в .env файле!")
-DB_NAME = "/app/data/egg_database.db"  # Для Docker
-# DB_NAME = "egg_database.db"  # Для локального использования
+# DB_NAME = "/app/data/egg_database.db"  # Для Docker
+DB_NAME = "egg_database.db"  # Для локального использования
 
 
 # Константа для состояния рассылки
@@ -49,17 +50,18 @@ def init_db():
 
     # Таблица для записей о яйценоскости
     c.execute('''CREATE TABLE IF NOT EXISTS eggs
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  user_id INTEGER,
-                  date TEXT,
-                  count INTEGER,
-                  notes TEXT)''')
+                (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                date TEXT,
+                count INTEGER,
+                notes TEXT)''')
 
     # Таблица для настроек пользователей
     c.execute('''CREATE TABLE IF NOT EXISTS user_settings
-                 (user_id INTEGER PRIMARY KEY,
-                  reminders_enabled BOOLEAN DEFAULT 0,
-                  reminder_time TEXT DEFAULT '20:00')''')
+                (user_id INTEGER PRIMARY KEY,
+                reminders_enabled BOOLEAN DEFAULT 0,
+                reminder_time TEXT DEFAULT '20:00',
+                timezone TEXT DEFAULT '+03:00')''')
 
     conn.commit()
     conn.close()
@@ -687,22 +689,28 @@ def send_reminder(user_id):
 
 # -------------
 def check_and_remind():
-    """Синхронная функция для проверки и отправки напоминаний"""
+    """Синхронная функция для проверки и отправки напоминаний с учетом часового пояса"""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("SELECT user_id, reminder_time FROM user_settings WHERE reminders_enabled=1")
+    c.execute("SELECT user_id, reminder_time, timezone FROM user_settings WHERE reminders_enabled=1")
     users = c.fetchall()
     
-    for user_id, reminder_time in users:
+    for user_id, reminder_time, timezone in users:
         try:
             if has_today_entry(user_id):
                 continue
                 
             hour, minute = map(int, reminder_time.split(':'))
-            now = datetime.now()
+            
+            # Получаем текущее время с учетом часового пояса пользователя
+            try:
+                tz_offset = int(timezone[:3])  # Преобразуем "+03:00" в 3
+            except:
+                tz_offset = 3  # Значение по умолчанию, если часовой пояс некорректен
+                
+            now = datetime.utcnow() + timedelta(hours=tz_offset)
             
             if now.hour == hour and now.minute == minute:
-                # Создаем поток для отправки напоминания
                 threading.Thread(target=send_reminder, args=(user_id,)).start()
         except Exception as e:
             print(f"Ошибка при проверке напоминания для {user_id}: {str(e)}")
@@ -727,12 +735,12 @@ def start_scheduler():
 def get_user_settings(user_id):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("SELECT reminders_enabled, reminder_time FROM user_settings WHERE user_id=?", (user_id,))
+    c.execute("SELECT reminders_enabled, reminder_time, timezone FROM user_settings WHERE user_id=?", (user_id,))
     settings = c.fetchone()
     conn.close()
-    return settings or (False, '20:00')
+    return settings or (False, '20:00', '+03:00')  # Возвращаем время и часовой пояс по умолчанию
 
-def update_user_settings(user_id, reminders_enabled=None, reminder_time=None):
+def update_user_settings(user_id, reminders_enabled=None, reminder_time=None, timezone=None):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     
@@ -748,6 +756,9 @@ def update_user_settings(user_id, reminders_enabled=None, reminder_time=None):
     if reminder_time is not None:
         updates.append("reminder_time = ?")
         params.append(reminder_time)
+    if timezone is not None:
+        updates.append("timezone = ?")
+        params.append(timezone)
     
     if updates:
         query = f"UPDATE user_settings SET {', '.join(updates)} WHERE user_id = ?"
@@ -758,20 +769,28 @@ def update_user_settings(user_id, reminders_enabled=None, reminder_time=None):
     conn.close()
 
 async def manage_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message is None or update.message.from_user is None:
+        return  # Или отправить сообщение о том, что произошла ошибка
+    
     user_id = update.message.from_user.id
     args = context.args
-    current_settings = get_user_settings(user_id)
+    reminders_enabled, reminder_time, timezone = get_user_settings(user_id)
 
     if not args:
-        status = "включены" if current_settings[0] else "выключены"
+        status = "включены" if reminders_enabled else "выключены"
         await update.message.reply_text(
             f"🔔 Текущие настройки напоминаний:\n"
             f"Статус: {status}\n"
-            f"Время: {current_settings[1]}\n\n"
-            "Используйте:\n"
+            f"Время: {reminder_time} (по вашему времени UTC{timezone})\n\n"
+            "Доступные команды:\n"
+            "/reminders - статус напоминаний\n"
             "/reminders on - включить\n"
             "/reminders off - выключить\n"
-            "/reminders time ЧЧ:ММ - установить время"
+            "/reminders time ЧЧ:ММ - установить время\n"
+            "/reminders tz ±ЧЧ:ММ - установить часовой пояс\n\n"
+            "Примеры:\n"
+            "/reminders time 19:00 - напоминание в 19:00\n"
+            "/reminders tz +05:00 - часовой пояс UTC+5"
         )
         return
 
@@ -787,9 +806,24 @@ async def manage_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Проверка формата времени
             datetime.strptime(args[1], "%H:%M")
             update_user_settings(user_id, reminder_time=args[1])
-            await update.message.reply_text(f"⏰ Время напоминания установлено на {args[1]}")
+            await update.message.reply_text(
+                f"⏰ Время напоминания установлено на {args[1]} (UTC{timezone})"
+            )
         except ValueError:
             await update.message.reply_text("❌ Неверный формат времени! Используйте ЧЧ:ММ")
+    elif action == "tz" and len(args) > 1:
+        try:
+            # Проверка формата часового пояса
+            tz = args[1]
+            if not re.match(r'^[+-]\d{2}:\d{2}$', tz):
+                raise ValueError
+            update_user_settings(user_id, timezone=tz)
+            await update.message.reply_text(
+                f"🌍 Часовой пояс установлен на UTC{tz}\n"
+                f"Теперь напоминания будут приходить в {reminder_time} по вашему времени"
+            )
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат часового пояса! Используйте ±ЧЧ:ММ (например +03:00 или -05:00)")
     else:
         await update.message.reply_text("❌ Неверная команда!")
 
