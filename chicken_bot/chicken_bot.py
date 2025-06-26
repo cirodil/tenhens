@@ -36,8 +36,8 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("Токен бота не найден в .env файле!")
-# DB_NAME = "/app/data/egg_database.db"  # Для Docker
-DB_NAME = "egg_database.db"  # Для локального использования
+DB_NAME = "/app/data/egg_database.db"  # Для Docker
+# DB_NAME = "egg_database.db"  # Для локального использования
 
 
 # Константа для состояния рассылки
