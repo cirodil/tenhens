@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 from datetime import datetime, timedelta
+import pandas as pd
 
 # Настройки базы данных
 DB_NAME = "/app/data/egg_database.db"
@@ -121,27 +122,79 @@ def update_record(record_id, count=None, date=None, notes=None):
     conn.close()
 
 def get_stats(user_id, days=7):
+    """Получить статистику за указанный период"""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    # Получаем начальную дату
+    start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
+    
+    # Получаем данные за период
     c.execute('''SELECT date, SUM(count)
                  FROM eggs
                  WHERE user_id = ? AND date >= ?
                  GROUP BY date
                  ORDER BY date''', (user_id, start_date))
     data = c.fetchall()
+    
+    conn.close()
+    return data
+
+def get_total_eggs(user_id):
+    """Получить общее количество яиц для пользователя"""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('''SELECT SUM(count) FROM eggs WHERE user_id = ?''', (user_id,))
+    result = c.fetchone()
+    conn.close()
+    return result[0] if result[0] is not None else 0
+
+def get_egg_records_count(user_id):
+    """Получить количество записей пользователя"""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('''SELECT COUNT(*) FROM eggs WHERE user_id = ?''', (user_id,))
+    result = c.fetchone()
+    conn.close()
+    return result[0] if result[0] is not None else 0
+
+def get_all_user_records(user_id):
+    """Получить все записи пользователя для аналитики"""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('''SELECT date, count, notes FROM eggs WHERE user_id = ? ORDER BY date''', (user_id,))
+    data = c.fetchall()
     conn.close()
     return data
 
 def generate_plot(user_id, days=7):
+    """Сгенерировать график яйценоскости"""
     data = get_stats(user_id, days)
     if not data:
-        return None
-    dates = [datetime.strptime(row[0], "%Y-%m-%d") for row in data]
-    counts = [row[1] for row in data]
+        # Если нет данных за период, попробуем получить все данные пользователя
+        all_data = get_all_user_records(user_id)
+        if not all_data:
+            return None
+        
+        # Преобразуем все данные в DataFrame для удобства
+        df = pd.DataFrame(all_data, columns=['date', 'count', 'notes'])
+        df['date'] = pd.to_datetime(df['date'])
+        
+        # Если данных меньше чем days, используем все доступные данные
+        if len(df) < days:
+            days = len(df)
+        
+        # Берем последние days записей
+        recent_data = df.tail(days)
+        dates = recent_data['date'].tolist()
+        counts = recent_data['count'].tolist()
+    else:
+        dates = [datetime.strptime(row[0], "%Y-%m-%d") for row in data]
+        counts = [row[1] for row in data]
+    
     plt.figure(figsize=(10, 6))
     plt.plot(dates, counts, marker='o', linestyle='-', color='#ff6b6b')
-    plt.title(f'Яйценоскость за {days} дней')
+    plt.title(f'Яйценоскость за {len(dates)} дней')
     plt.xlabel('Дата')
     plt.ylabel('Количество яиц')
     plt.grid(True, alpha=0.3)
@@ -153,36 +206,76 @@ def generate_plot(user_id, days=7):
     return filename
 
 def calculate_analytics(user_id, days=7):
-    data = get_stats(user_id, days * 2)
-    if len(data) < 2:
+    """Рассчитать аналитику по яйценоскости"""
+    # Получаем все данные пользователя
+    all_data = get_all_user_records(user_id)
+    if not all_data or len(all_data) < 2:
         return None
-    current = data[-days:]
-    previous = data[:-days]
-    current_counts = [c[1] for c in current]
+    
+    # Преобразуем в DataFrame
+    df = pd.DataFrame(all_data, columns=['date', 'count', 'notes'])
+    df['date'] = pd.to_datetime(df['date'])
+    
+    # Если данных меньше чем days, используем все доступные данные
+    if len(df) < days:
+        days = len(df)
+    
+    # Берем последние days записей для текущего периода
+    current_data = df.tail(days)
+    
+    # Берем предыдущие days записей для сравнения (если есть)
+    if len(df) >= days * 2:
+        previous_data = df.iloc[-days*2:-days]
+    else:
+        # Если нет достаточного количества данных для сравнения, берем все что есть до текущего периода
+        previous_data = df.iloc[:-days] if len(df) > days else pd.DataFrame()
+    
+    # Рассчитываем статистики
+    current_counts = current_data['count'].tolist()
     avg_current = np.mean(current_counts)
-    avg_previous = np.mean([p[1] for p in previous]) if previous else 0
-    slope, _, _, _, _ = stats.linregress(range(len(current_counts)), current_counts)
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute('''SELECT notes FROM eggs
-                 WHERE user_id = ? AND date >= date('now', ?)''',
-              (user_id, f'-{days} days',))
-    notes = [note[0].lower() for note in c.fetchall() if note[0]]
+    
+    if not previous_data.empty:
+        avg_previous = np.mean(previous_data['count'])
+    else:
+        avg_previous = 0
+    
+    # Рассчитываем тренд
+    if len(current_counts) > 1:
+        x = np.arange(len(current_counts))
+        slope, _, _, _, _ = stats.linregress(x, current_counts)
+        trend = slope * len(current_counts)
+    else:
+        trend = 0
+    
+    # Находим дни с максимальным и минимальным количеством яиц
+    max_day_idx = current_data['count'].idxmax()
+    min_day_idx = current_data['count'].idxmin()
+    
+    max_day = (current_data.loc[max_day_idx, 'date'].strftime("%Y-%m-%d"), 
+               current_data.loc[max_day_idx, 'count'])
+    min_day = (current_data.loc[min_day_idx, 'date'].strftime("%Y-%m-%d"), 
+               current_data.loc[min_day_idx, 'count'])
+    
+    # Анализ заметок
+    notes = [note.lower() for note in current_data['notes'].dropna().tolist()]
     word_analysis = {}
     for note in notes:
         for word in note.split():
-            word_analysis[word] = word_analysis.get(word, 0) + 1
+            if len(word) > 2:  # Игнорируем короткие слова
+                word_analysis[word] = word_analysis.get(word, 0) + 1
+    
     top_words = sorted(word_analysis.items(), key=lambda x: x[1], reverse=True)[:3]
-    conn.close()
+    
     return {
         'current_avg': avg_current,
         'previous_avg': avg_previous,
-        'trend': slope * days,
-        'max_day': max(current, key=lambda x: x[1]),
-        'min_day': min(current, key=lambda x: x[1]),
+        'trend': trend,
+        'max_day': max_day,
+        'min_day': min_day,
         'top_words': top_words
     }
 
+# Остальной код остается без изменений...
 init_db()
 st.set_page_config(page_title="Десять курочек | Сервис для учёта яйценоскости" , page_icon="🐔")
 
@@ -249,7 +342,30 @@ if not st.session_state.get('logged_in'):
                     st.error("Пользователь не найден")
 
 else:
-    st.sidebar.subheader(f"Добро пожаловать, {st.session_state['username']}!")
+    # Получаем статистику пользователя для сайдбара
+    total_eggs = get_total_eggs(st.session_state['telegram_id'])
+    records_count = get_egg_records_count(st.session_state['telegram_id'])
+    
+    # Отображаем информацию в сайдбаре
+    st.sidebar.subheader(f"👋 Добро пожаловать, {st.session_state['username']}!")
+    
+    # Блок с общей статистикой
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📊 Общая статистика")
+    
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        st.metric("Всего яиц", f"{total_eggs}")
+    with col2:
+        st.metric("Записей", f"{records_count}")
+    
+    # Показываем среднее количество яиц на запись, если есть записи
+    if records_count > 0:
+        avg_per_record = total_eggs / records_count
+        st.sidebar.metric("В среднем на запись", f"{avg_per_record:.1f}")
+    
+    st.sidebar.markdown("---")
+    
     action = st.sidebar.selectbox("Выберите действие", 
         ["Добавить запись", "Редактировать запись", "Удалить запись", 
          "Статистика", "Аналитика", "График"])
@@ -262,6 +378,8 @@ else:
         if st.button("Добавить"):
             add_egg_record(st.session_state['telegram_id'], date.strftime("%Y-%m-%d"), count, notes)
             st.success("✅ Запись успешно добавлена!")
+            # Обновляем статистику после добавления записи
+            st.rerun()
 
     elif action == "Редактировать запись":
         st.subheader("✏️ Редактировать запись")
@@ -272,6 +390,8 @@ else:
         if st.button("Обновить"):
             update_record(record_id, count, date.strftime("%Y-%m-%d"), notes)
             st.success("✅ Запись успешно обновлена!")
+            # Обновляем статистику после редактирования записи
+            st.rerun()
 
     elif action == "Удалить запись":
         st.subheader("❌ Удалить запись")
@@ -279,6 +399,8 @@ else:
         if st.button("Удалить"):
             delete_record(record_id)
             st.success("✅ Запись успешно удалена!")
+            # Обновляем статистику после удаления записи
+            st.rerun()
 
     elif action == "Статистика":
         st.subheader("📊 Статистика")
@@ -295,7 +417,20 @@ else:
                 }
             )
         else:
-            st.warning("Нет данных за выбранный период")
+            # Если нет данных за выбранный период, показываем все доступные данные
+            all_data = get_all_user_records(st.session_state['telegram_id'])
+            if all_data:
+                st.info(f"Нет данных за выбранный период. Показаны все доступные записи ({len(all_data)} записей):")
+                st.dataframe(
+                    data=[{"Дата": date, "Количество": count, "Заметки": notes} for date, count, notes in all_data],
+                    use_container_width=True,
+                    column_config={
+                        "Дата": st.column_config.DateColumn(format="YYYY-MM-DD"),
+                        "Количество": st.column_config.NumberColumn(format="%d 🥚")
+                    }
+                )
+            else:
+                st.warning("У вас пока нет записей о яйценоскости")
 
     elif action == "Аналитика":
         st.subheader("📈 Аналитика")
@@ -326,7 +461,7 @@ else:
                     cols[i].metric(f"Слово #{i+1}", word, f"{count} упоминаний")
 
         else:
-            st.warning("Недостаточно данных для анализа")
+            st.warning("Недостаточно данных для анализа. Добавьте больше записей.")
 
     elif action == "График":
         st.subheader("📈 График яйценоскости")
@@ -342,7 +477,7 @@ else:
                     mime="image/png"
                 )
         else:
-            st.warning("Нет данных для построения графика")
+            st.warning("Нет данных для построения графика. Добавьте записи о яйценоскости.")
 
     if st.sidebar.button("🚪 Выйти из системы"):
         st.session_state.clear()
