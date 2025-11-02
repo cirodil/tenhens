@@ -10,7 +10,6 @@ import pandas as pd
 # Настройки базы данных
 DB_NAME = "/app/data/egg_database.db"
 # DB_NAME = "../chicken_bot/data/egg_database.db"
-
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -372,39 +371,46 @@ else:
     
     if action == "Добавить запись":
         st.subheader("📥 Добавить новую запись")
-        count = st.number_input("Количество яиц", min_value=0, step=1)
-        date = st.date_input("Дата")
-        notes = st.text_input("Заметки")
-        if st.button("Добавить"):
+        
+        # Используем session_state для хранения состояния формы
+        if 'form_submitted' not in st.session_state:
+            st.session_state.form_submitted = False
+            
+        count = st.number_input("Количество яиц", min_value=0, step=1, key="add_count")
+        date = st.date_input("Дата", key="add_date")
+        notes = st.text_input("Заметки", key="add_notes")
+        
+        if st.button("Добавить", key="add_button"):
             add_egg_record(st.session_state['telegram_id'], date.strftime("%Y-%m-%d"), count, notes)
             st.success("✅ Запись успешно добавлена!")
-            # Обновляем статистику после добавления записи
-            st.rerun()
+            st.session_state.form_submitted = True
+            
+        # Если форма была отправлена, показываем кнопку для сброса
+        if st.session_state.form_submitted:
+            if st.button("Добавить еще запись", key="add_another"):
+                st.session_state.form_submitted = False
+                st.rerun()
 
     elif action == "Редактировать запись":
         st.subheader("✏️ Редактировать запись")
-        record_id = st.number_input("ID записи", min_value=1, step=1)
-        count = st.number_input("Новое количество яиц", min_value=0, step=1)
-        date = st.date_input("Новая дата")
-        notes = st.text_input("Новые заметки")
-        if st.button("Обновить"):
+        record_id = st.number_input("ID записи", min_value=1, step=1, key="edit_id")
+        count = st.number_input("Новое количество яиц", min_value=0, step=1, key="edit_count")
+        date = st.date_input("Новая дата", key="edit_date")
+        notes = st.text_input("Новые заметки", key="edit_notes")
+        if st.button("Обновить", key="edit_button"):
             update_record(record_id, count, date.strftime("%Y-%m-%d"), notes)
             st.success("✅ Запись успешно обновлена!")
-            # Обновляем статистику после редактирования записи
-            st.rerun()
 
     elif action == "Удалить запись":
         st.subheader("❌ Удалить запись")
-        record_id = st.number_input("ID записи", min_value=1, step=1)
-        if st.button("Удалить"):
+        record_id = st.number_input("ID записи", min_value=1, step=1, key="delete_id")
+        if st.button("Удалить", key="delete_button"):
             delete_record(record_id)
             st.success("✅ Запись успешно удалена!")
-            # Обновляем статистику после удаления записи
-            st.rerun()
 
     elif action == "Статистика":
         st.subheader("📊 Статистика")
-        days = st.slider("Период (дней)", min_value=1, max_value=365, value=7)
+        days = st.slider("Период (дней)", min_value=1, max_value=365, value=7, key="stats_days")
         data = get_stats(st.session_state['telegram_id'], days)
         if data:
             st.write(f"**Всего яиц за {days} дней:** {sum(x[1] for x in data)}")
@@ -434,7 +440,7 @@ else:
 
     elif action == "Аналитика":
         st.subheader("📈 Аналитика")
-        days = st.slider("Анализируемый период (дней)", min_value=7, max_value=90, value=30)
+        days = st.slider("Анализируемый период (дней)", min_value=7, max_value=90, value=30, key="analytics_days")
         analytics = calculate_analytics(st.session_state['telegram_id'], days)
         
         if analytics:
@@ -465,7 +471,7 @@ else:
 
     elif action == "График":
         st.subheader("📈 График яйценоскости")
-        days = st.slider("Период отображения (дней)", min_value=7, max_value=180, value=30)
+        days = st.slider("Период отображения (дней)", min_value=7, max_value=180, value=30, key="plot_days")
         filename = generate_plot(st.session_state['telegram_id'], days)
         if filename:
             st.image(filename)
