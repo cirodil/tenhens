@@ -84,6 +84,15 @@ def get_user_data(telegram_id):
     conn.close()
     return data
 
+def get_all_records_with_id(telegram_id):
+    """Получить все записи пользователя с ID для отображения"""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT id, date, count, notes FROM eggs WHERE user_id = ? ORDER BY date DESC, id DESC", (telegram_id,))
+    data = c.fetchall()
+    conn.close()
+    return data
+
 def add_egg_record(user_id, date, count, notes=""):
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -119,6 +128,15 @@ def update_record(record_id, count=None, date=None, notes=None):
         c.execute(query, params)
         conn.commit()
     conn.close()
+
+def get_record_by_id(record_id):
+    """Получить запись по ID"""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT id, user_id, date, count, notes FROM eggs WHERE id = ?", (record_id,))
+    result = c.fetchone()
+    conn.close()
+    return result
 
 def get_stats(user_id, days=7):
     """Получить статистику за указанный период"""
@@ -366,8 +384,7 @@ else:
     st.sidebar.markdown("---")
     
     action = st.sidebar.selectbox("Выберите действие", 
-        ["Добавить запись", "Редактировать запись", "Удалить запись", 
-         "Статистика", "Аналитика", "График"])
+        ["Просмотр и управление записями", "Добавить запись", "Статистика", "Аналитика", "График"])
     
     if action == "Добавить запись":
         st.subheader("📥 Добавить новую запись")
@@ -391,22 +408,160 @@ else:
                 st.session_state.form_submitted = False
                 st.rerun()
 
-    elif action == "Редактировать запись":
-        st.subheader("✏️ Редактировать запись")
-        record_id = st.number_input("ID записи", min_value=1, step=1, key="edit_id")
-        count = st.number_input("Новое количество яиц", min_value=0, step=1, key="edit_count")
-        date = st.date_input("Новая дата", key="edit_date")
-        notes = st.text_input("Новые заметки", key="edit_notes")
-        if st.button("Обновить", key="edit_button"):
-            update_record(record_id, count, date.strftime("%Y-%m-%d"), notes)
-            st.success("✅ Запись успешно обновлена!")
-
-    elif action == "Удалить запись":
-        st.subheader("❌ Удалить запись")
-        record_id = st.number_input("ID записи", min_value=1, step=1, key="delete_id")
-        if st.button("Удалить", key="delete_button"):
-            delete_record(record_id)
-            st.success("✅ Запись успешно удалена!")
+    elif action == "Просмотр и управление записями":
+        st.subheader("📋 Управление записями")
+        
+        # Добавляем форму для быстрого добавления записи
+        with st.expander("➕ Быстрое добавление записи", expanded=False):
+            col1, col2, col3 = st.columns([2, 2, 4])
+            with col1:
+                quick_date = st.date_input("Дата", key="quick_date")
+            with col2:
+                quick_count = st.number_input("Количество", min_value=0, step=1, key="quick_count")
+            with col3:
+                quick_notes = st.text_input("Заметки", key="quick_notes", placeholder="Необязательно")
+            
+            if st.button("Добавить запись", key="quick_add"):
+                if quick_count > 0:
+                    add_egg_record(st.session_state['telegram_id'], quick_date.strftime("%Y-%m-%d"), quick_count, quick_notes)
+                    st.success("✅ Запись успешно добавлена!")
+                    st.rerun()
+                else:
+                    st.error("Укажите количество яиц")
+        
+        # Получаем все записи пользователя с ID
+        records = get_all_records_with_id(st.session_state['telegram_id'])
+        
+        if records:
+            # Создаем DataFrame для красивого отображения
+            df = pd.DataFrame(records, columns=['ID', 'Дата', 'Количество', 'Заметки'])
+            
+            # Показываем общее количество записей
+            st.info(f"Всего записей: {len(records)}")
+            
+            # Добавляем фильтры
+            st.subheader("🔍 Фильтры и поиск")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                min_date = st.date_input("От даты", value=datetime.now() - timedelta(days=30), key="filter_min_date")
+            
+            with col2:
+                max_date = st.date_input("До даты", value=datetime.now(), key="filter_max_date")
+            
+            with col3:
+                search_notes = st.text_input("Поиск по заметкам", key="search_notes")
+            
+            # Фильтруем данные
+            filtered_df = df[
+                (pd.to_datetime(df['Дата']) >= pd.to_datetime(min_date)) & 
+                (pd.to_datetime(df['Дата']) <= pd.to_datetime(max_date))
+            ]
+            
+            if search_notes:
+                filtered_df = filtered_df[filtered_df['Заметки'].str.contains(search_notes, case=False, na=False)]
+            
+            st.write(f"Найдено записей: {len(filtered_df)}")
+            
+            # Отображаем таблицу с записями
+            for index, row in filtered_df.iterrows():
+                with st.container():
+                    col1, col2, col3, col4, col5 = st.columns([1, 2, 2, 4, 3])
+                    
+                    with col1:
+                        st.write(f"**{row['ID']}**")
+                    
+                    with col2:
+                        st.write(row['Дата'])
+                    
+                    with col3:
+                        st.write(f"{row['Количество']} 🥚")
+                    
+                    with col4:
+                        st.write(row['Заметки'] if row['Заметки'] else "-")
+                    
+                    with col5:
+                        # Кнопки действий для каждой записи
+                        edit_key = f"edit_{row['ID']}"
+                        delete_key = f"delete_{row['ID']}"
+                        
+                        col_edit, col_del = st.columns(2)
+                        with col_edit:
+                            if st.button("✏️", key=edit_key, help="Редактировать запись"):
+                                st.session_state[f'editing_{row["ID"]}'] = True
+                        
+                        with col_del:
+                            if st.button("🗑️", key=delete_key, help="Удалить запись"):
+                                st.session_state[f'deleting_{row["ID"]}'] = True
+                    
+                    # Форма редактирования для этой записи
+                    if st.session_state.get(f'editing_{row["ID"]}'):
+                        with st.expander(f"Редактирование записи #{row['ID']}", expanded=True):
+                            record_data = get_record_by_id(row['ID'])
+                            if record_data:
+                                edit_col1, edit_col2, edit_col3 = st.columns([2, 2, 4])
+                                
+                                with edit_col1:
+                                    edit_date = st.date_input("Дата", 
+                                                             value=datetime.strptime(record_data[2], "%Y-%m-%d"),
+                                                             key=f"edit_date_{row['ID']}")
+                                
+                                with edit_col2:
+                                    edit_count = st.number_input("Количество", 
+                                                                min_value=0, 
+                                                                value=record_data[3],
+                                                                key=f"edit_count_{row['ID']}")
+                                
+                                with edit_col3:
+                                    edit_notes = st.text_input("Заметки", 
+                                                              value=record_data[4] if record_data[4] else "",
+                                                              key=f"edit_notes_{row['ID']}")
+                                
+                                col_save, col_cancel = st.columns(2)
+                                with col_save:
+                                    if st.button("💾 Сохранить", key=f"save_{row['ID']}"):
+                                        update_record(row['ID'], edit_count, edit_date.strftime("%Y-%m-%d"), edit_notes)
+                                        st.success("✅ Запись успешно обновлена!")
+                                        st.session_state[f'editing_{row["ID"]}'] = False
+                                        st.rerun()
+                                
+                                with col_cancel:
+                                    if st.button("❌ Отмена", key=f"cancel_{row['ID']}"):
+                                        st.session_state[f'editing_{row["ID"]}'] = False
+                                        st.rerun()
+                    
+                    # Подтверждение удаления
+                    if st.session_state.get(f'deleting_{row["ID"]}'):
+                        with st.expander(f"Подтверждение удаления записи #{row['ID']}", expanded=True):
+                            st.warning("Вы уверены, что хотите удалить эту запись? Это действие нельзя отменить!")
+                            
+                            col_confirm, col_cancel_del = st.columns(2)
+                            with col_confirm:
+                                if st.button("✅ Да, удалить", key=f"confirm_del_{row['ID']}"):
+                                    delete_record(row['ID'])
+                                    st.success("✅ Запись успешно удалена!")
+                                    st.session_state[f'deleting_{row["ID"]}'] = False
+                                    st.rerun()
+                            
+                            with col_cancel_del:
+                                if st.button("❌ Отмена", key=f"cancel_del_{row['ID']}"):
+                                    st.session_state[f'deleting_{row["ID"]}'] = False
+                                    st.rerun()
+                    
+                    st.markdown("---")
+            
+            # Экспорт данных
+            st.subheader("📤 Экспорт данных")
+            csv = filtered_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Скачать отфильтрованные данные в CSV",
+                data=csv,
+                file_name=f"egg_records_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+            
+        else:
+            st.warning("У вас пока нет записей о яйценоскости")
 
     elif action == "Статистика":
         st.subheader("📊 Статистика")
