@@ -578,10 +578,12 @@ else:
                 st.rerun()
 
     elif action == "Просмотр и управление записями":
-        st.subheader("📋 Управление записями")
-        
-        # Добавляем форму для быстрого добавления записи
-        with st.expander("➕ Быстрое добавление записи", expanded=False):
+    st.subheader("📋 Управление записями")
+    
+    # Добавляем форму для быстрого добавления записи
+    with st.expander("➕ Быстрое добавление записи", expanded=False):
+        # Используем форму для предотвращения множественной отправки
+        with st.form(key="quick_add_form", clear_on_submit=True):
             col1, col2, col3 = st.columns([2, 2, 4])
             with col1:
                 quick_date = st.date_input("Дата", key="quick_date")
@@ -590,11 +592,11 @@ else:
             with col3:
                 quick_notes = st.text_input("Заметки", key="quick_notes", placeholder="Необязательно")
             
-            if st.button("Добавить запись", key="quick_add"):
+            submitted = st.form_submit_button("Добавить запись")
+            if submitted:
                 if quick_count > 0:
                     add_egg_record(st.session_state['telegram_id'], quick_date.strftime("%Y-%m-%d"), quick_count, quick_notes)
                     st.success("✅ Запись успешно добавлена!")
-                    st.rerun()
                 else:
                     st.error("Укажите количество яиц")
         
