@@ -578,27 +578,27 @@ else:
                 st.rerun()
 
     elif action == "Просмотр и управление записями":
-    st.subheader("📋 Управление записями")
-    
-    # Добавляем форму для быстрого добавления записи
-    with st.expander("➕ Быстрое добавление записи", expanded=False):
-        # Используем форму для предотвращения множественной отправки
-        with st.form(key="quick_add_form", clear_on_submit=True):
-            col1, col2, col3 = st.columns([2, 2, 4])
-            with col1:
-                quick_date = st.date_input("Дата", key="quick_date")
-            with col2:
-                quick_count = st.number_input("Количество", min_value=0, step=1, key="quick_count")
-            with col3:
-                quick_notes = st.text_input("Заметки", key="quick_notes", placeholder="Необязательно")
-            
-            submitted = st.form_submit_button("Добавить запись")
-            if submitted:
-                if quick_count > 0:
-                    add_egg_record(st.session_state['telegram_id'], quick_date.strftime("%Y-%m-%d"), quick_count, quick_notes)
-                    st.success("✅ Запись успешно добавлена!")
-                else:
-                    st.error("Укажите количество яиц")
+        st.subheader("📋 Управление записями")
+        
+        # Добавляем форму для быстрого добавления записи
+        with st.expander("➕ Быстрое добавление записи", expanded=False):
+            # Используем форму для предотвращения множественной отправки
+            with st.form(key="quick_add_form", clear_on_submit=True):
+                col1, col2, col3 = st.columns([2, 2, 4])
+                with col1:
+                    quick_date = st.date_input("Дата", key="quick_date")
+                with col2:
+                    quick_count = st.number_input("Количество", min_value=0, step=1, key="quick_count")
+                with col3:
+                    quick_notes = st.text_input("Заметки", key="quick_notes", placeholder="Необязательно")
+                
+                submitted = st.form_submit_button("Добавить запись")
+                if submitted:
+                    if quick_count > 0:
+                        add_egg_record(st.session_state['telegram_id'], quick_date.strftime("%Y-%m-%d"), quick_count, quick_notes)
+                        st.success("✅ Запись успешно добавлена!")
+                    else:
+                        st.error("Укажите количество яиц")
         
         # Получаем все записи пользователя с ID
         records = get_all_records_with_id(st.session_state['telegram_id'])
@@ -733,36 +733,6 @@ else:
             
         else:
             st.warning("У вас пока нет записей о яйценоскости")
-
-    elif action == "Статистика":
-        st.subheader("📊 Статистика")
-        days = st.slider("Период (дней)", min_value=1, max_value=365, value=7, key="stats_days")
-        data = get_stats(st.session_state['telegram_id'], days)
-        if data:
-            st.write(f"**Всего яиц за {days} дней:** {sum(x[1] for x in data)}")
-            st.dataframe(
-                data=[{"Дата": date, "Количество": count} for date, count in data],
-                use_container_width=True,
-                column_config={
-                    "Дата": st.column_config.DateColumn(format="YYYY-MM-DD"),
-                    "Количество": st.column_config.NumberColumn(format="%d 🥚")
-                }
-            )
-        else:
-            # Если нет данных за выбранный период, показываем все доступные данные
-            all_data = get_all_user_records(st.session_state['telegram_id'])
-            if all_data:
-                st.info(f"Нет данных за выбранный период. Показаны все доступные записи ({len(all_data)} записей):")
-                st.dataframe(
-                    data=[{"Дата": date, "Количество": count, "Заметки": notes} for date, count, notes in all_data],
-                    use_container_width=True,
-                    column_config={
-                        "Дата": st.column_config.DateColumn(format="YYYY-MM-DD"),
-                        "Количество": st.column_config.NumberColumn(format="%d 🥚")
-                    }
-                )
-            else:
-                st.warning("У вас пока нет записей о яйценоскости")
 
     elif action == "Аналитика":
         st.subheader("📈 Аналитика")
