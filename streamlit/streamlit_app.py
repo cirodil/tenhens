@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 # Настройки базы данных
-DB_NAME = "/app/data/egg_database.db"
-# DB_NAME = "../chicken_bot/data/egg_database.db"
+# DB_NAME = "/app/data/egg_database.db"
+DB_NAME = "../chicken_bot/data/egg_database.db"
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -422,29 +422,7 @@ if not st.session_state.get('logged_in'):
             """)
         
         st.markdown("---")
-        
-        # Отзывы (заглушки)
-        st.markdown("## 💬 Отзывы пользователей")
-        
-        review_col1, review_col2 = st.columns(2)
-        
-        with review_col1:
-            with st.container(border=True):
-                st.markdown("**Мария, 15 кур**")
-                st.markdown("⭐️⭐️⭐️⭐️⭐️")
-                st.markdown("«Очень удобно следить за продуктивностью! Заметила, что куры лучше несутся при определенной температуре.»")
-                
-        with review_col2:
-            with st.container(border=True):
-                st.markdown("**Сергей, фермер**")
-                st.markdown("⭐️⭐️⭐️⭐️⭐️")
-                st.markdown("«Отличная аналитика. Помогло оптимизировать кормление и увеличить яйценоскость на 15%.»")
-        
-        # Призыв к действию
-        st.markdown("---")
-        st.markdown("## 🎯 Готовы начать?")
-        st.markdown("Присоединяйтесь к сообществу птицеводов уже сегодня!")
-        
+              
 
     elif menu == "Регистрация":
         st.subheader("Создать новый аккаунт")
