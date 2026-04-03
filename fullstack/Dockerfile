@@ -1,12 +1,12 @@
 FROM node:18-alpine AS builder
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-COPY package*.json ./
-RUN npm install
+COPY frontend/package*.json ./frontend/
+RUN cd frontend && npm install
 
 COPY . .
-RUN npm run build
+RUN cd frontend && npm run build
 
 FROM python:3.11-slim
 
@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/build /app/frontend/build
+COPY --from=builder /app/frontend/build /app/frontend/build
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
