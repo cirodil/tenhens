@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  fullstack:
+    build: ./fullstack
+    env_file: .env
+    volumes:
+      - egg_data:/app/data
+    ports:
+      - "5000:5000"
+
+volumes:
+  egg_data:
